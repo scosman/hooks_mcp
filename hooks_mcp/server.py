@@ -1,11 +1,16 @@
 import argparse
+import asyncio
 import os
+import signal
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, List
 
+import uvicorn
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
+from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 from mcp.types import (
     GetPromptResult,
     Prompt,
@@ -14,6 +19,8 @@ from mcp.types import (
     TextContent,
     Tool,
 )
+from starlette.applications import Starlette
+from starlette.routing import Mount
 
 from .config import (
     ActionParameter,
@@ -180,25 +187,18 @@ def get_prompt_content(config_prompt: ConfigPrompt, config_path: Path) -> str:
         )
 
 
-async def serve(
+def _create_server(
     hooks_mcp_config: HooksMCPConfig,
     config_path: Path,
+    executor: CommandExecutor,
     disable_prompt_tool: bool = False,
-) -> None:
-    """
-    Run the HooksMCP server.
-
-    Args:
-        hooks_mcp_config: The HooksMCP configuration
-    """
+) -> Server:
+    """Create and configure the MCP server with all handlers."""
     # Create tool definitions
     tools = create_tool_definitions(hooks_mcp_config, disable_prompt_tool)
 
     # Create prompt definitions
     prompts = create_prompt_definitions(hooks_mcp_config)
-
-    # Create command executor
-    executor = CommandExecutor()
 
     # Create MCP server
     server = Server(hooks_mcp_config.server_name)
@@ -316,7 +316,11 @@ async def serve(
                 ],
             )
 
-    # Set up server capabilities
+    return server
+
+
+async def _serve_stdio(server: Server) -> None:
+    """Run the MCP server with stdio transport."""
     server_capabilities = server.create_initialization_options(
         experimental_capabilities={
             "tools": {"listChanged": True},
@@ -324,11 +328,99 @@ async def serve(
         }
     )
 
-    # Run the server
     async with stdio_server() as (read_stream, write_stream):
         await server.run(
             read_stream, write_stream, server_capabilities, raise_exceptions=True
         )
+
+
+async def _serve_http(server: Server, port: int) -> None:
+    """Run the MCP server with HTTP streaming transport."""
+    # Create session manager for HTTP streaming
+    session_manager = StreamableHTTPSessionManager(app=server)
+
+    @asynccontextmanager
+    async def lifespan(app: Starlette):
+        async with session_manager.run():
+            yield
+
+    # Create Starlette app
+    app = Starlette(
+        routes=[Mount("/mcp", app=session_manager.handle_request)],
+        lifespan=lifespan,
+    )
+
+    # Run the server
+    print(f"Starting HooksMCP server with HTTP streaming on port {port}")
+    print(f"Connect to: http://localhost:{port}/mcp")
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="info",
+        timeout_graceful_shutdown=1,
+    )
+    server_instance = uvicorn.Server(config)
+
+    # Handle shutdown signals properly
+    # Note: signal handlers are not supported on Windows in asyncio
+    if sys.platform == "win32":
+        # On Windows, use signal.signal() with a handler that sets the exit flag
+        def signal_handler_sig(signum, frame) -> None:
+            print("\nShutting down server...")
+            server_instance.should_exit = True
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, signal_handler_sig)
+    else:
+        # On Unix-like systems, use asyncio signal handlers
+        loop = asyncio.get_running_loop()
+
+        def signal_handler() -> None:
+            print("\nShutting down server...")
+            server_instance.should_exit = True
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, signal_handler)
+
+    try:
+        await server_instance.serve()
+    finally:
+        # Clean up signal handlers on non-Windows platforms
+        if sys.platform != "win32":
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.remove_signal_handler(sig)
+
+
+async def serve(
+    hooks_mcp_config: HooksMCPConfig,
+    config_path: Path,
+    disable_prompt_tool: bool = False,
+    http_port: int | None = None,
+) -> None:
+    """
+    Run the HooksMCP server.
+
+    Args:
+        hooks_mcp_config: The HooksMCP configuration
+        config_path: Path to the configuration file
+        disable_prompt_tool: If True, don't expose the get_prompt tool
+        http_port: If set, run with HTTP streaming on this port instead of stdio
+    """
+    # Create command executor
+    executor = CommandExecutor()
+
+    # Create and configure the MCP server
+    server = _create_server(
+        hooks_mcp_config, config_path, executor, disable_prompt_tool
+    )
+
+    # Run the server with the appropriate transport
+    if http_port is not None:
+        await _serve_http(server, http_port)
+    else:
+        await _serve_stdio(server)
 
 
 def get_version() -> str:
@@ -370,6 +462,12 @@ def main() -> None:
         "--disable-prompt-tool",
         action="store_true",
         help="Disable the get_prompt tool entirely, similar to setting get_prompt_tool_filter to an empty array",
+    )
+    parser.add_argument(
+        "--http-streaming-port",
+        type=int,
+        default=None,
+        help="Run the server with HTTP streaming on the specified port instead of stdio",
     )
 
     args = parser.parse_args()
@@ -414,9 +512,11 @@ def main() -> None:
 
     # Run the server
     try:
-        import asyncio
-
-        asyncio.run(serve(config, config_path, args.disable_prompt_tool))
+        asyncio.run(
+            serve(
+                config, config_path, args.disable_prompt_tool, args.http_streaming_port
+            )
+        )
     except KeyboardInterrupt:
         print("HooksMCP server stopped by user")
         sys.exit(0)
