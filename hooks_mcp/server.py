@@ -363,21 +363,34 @@ async def _serve_http(server: Server, port: int) -> None:
     server_instance = uvicorn.Server(config)
 
     # Handle shutdown signals properly
-    loop = asyncio.get_running_loop()
+    # Note: signal handlers are not supported on Windows in asyncio
+    if sys.platform == "win32":
+        # On Windows, use signal.signal() with a handler that sets the exit flag
+        def signal_handler_sig(signum, frame) -> None:
+            print("\nShutting down server...")
+            server_instance.should_exit = True
 
-    def signal_handler() -> None:
-        print("\nShutting down server...")
-        server_instance.should_exit = True
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            signal.signal(sig, signal_handler_sig)
+    else:
+        # On Unix-like systems, use asyncio signal handlers
+        loop = asyncio.get_running_loop()
 
-    for sig in (signal.SIGINT, signal.SIGTERM):
-        loop.add_signal_handler(sig, signal_handler)
+        def signal_handler() -> None:
+            print("\nShutting down server...")
+            server_instance.should_exit = True
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, signal_handler)
 
     try:
         await server_instance.serve()
     finally:
-        # Clean up signal handlers
-        for sig in (signal.SIGINT, signal.SIGTERM):
-            loop.remove_signal_handler(sig)
+        # Clean up signal handlers on non-Windows platforms
+        if sys.platform != "win32":
+            loop = asyncio.get_running_loop()
+            for sig in (signal.SIGINT, signal.SIGTERM):
+                loop.remove_signal_handler(sig)
 
 
 async def serve(
