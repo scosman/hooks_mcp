@@ -94,6 +94,8 @@ dependencies = [
     { name = "mcp" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
+    { name = "starlette" },
+    { name = "uvicorn" },
 ]
 
 [package.dev-dependencies]
@@ -108,6 +110,8 @@ requires-dist = [
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "starlette", specifier = ">=0.27.0" },
+    { name = "uvicorn", specifier = ">=0.22.0" },
 ]
 
 [package.metadata.requires-dev]
