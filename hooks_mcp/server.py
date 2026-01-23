@@ -1,5 +1,7 @@
 import argparse
+import asyncio
 import os
+import signal
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -351,9 +353,31 @@ async def _serve_http(server: Server, port: int) -> None:
     # Run the server
     print(f"Starting HooksMCP server with HTTP streaming on port {port}")
     print(f"Connect to: http://localhost:{port}/mcp")
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="info")
+    config = uvicorn.Config(
+        app,
+        host="127.0.0.1",
+        port=port,
+        log_level="info",
+        timeout_graceful_shutdown=1,
+    )
     server_instance = uvicorn.Server(config)
-    await server_instance.serve()
+
+    # Handle shutdown signals properly
+    loop = asyncio.get_running_loop()
+
+    def signal_handler() -> None:
+        print("\nShutting down server...")
+        server_instance.should_exit = True
+
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, signal_handler)
+
+    try:
+        await server_instance.serve()
+    finally:
+        # Clean up signal handlers
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.remove_signal_handler(sig)
 
 
 async def serve(
@@ -475,8 +499,6 @@ def main() -> None:
 
     # Run the server
     try:
-        import asyncio
-
         asyncio.run(
             serve(
                 config, config_path, args.disable_prompt_tool, args.http_streaming_port
