@@ -296,6 +296,74 @@ actions:
         assert action2.command == "echo Hello"
         assert action2.timeout == 60  # Default timeout
 
+    def test_valid_config_action_with_arguments(self):
+        """Test parsing an action with structured arguments."""
+        yaml_content = """
+actions:
+  - name: "embedding_search"
+    description: "Search embeddings"
+    command: "/usr/local/bin/query_embeddings"
+    arguments:
+      - "search"
+      - "--query"
+      - "$QUERY"
+    parameters:
+      - name: "QUERY"
+        type: "insecure_string"
+        description: "Search query"
+"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            config = HooksMCPConfig.from_yaml(f.name)
+            Path(f.name).unlink()
+
+        assert len(config.actions) == 1
+        action = config.actions[0]
+        assert action.command == "/usr/local/bin/query_embeddings"
+        assert action.arguments == ["search", "--query", "$QUERY"]
+
+    def test_invalid_config_action_arguments_must_be_array(self):
+        """Test that non-array action arguments are rejected."""
+        yaml_content = """
+actions:
+  - name: "bad_action"
+    description: "Invalid arguments type"
+    command: "echo"
+    arguments: "--query $QUERY"
+"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            with pytest.raises(ConfigError) as context:
+                HooksMCPConfig.from_yaml(f.name)
+            Path(f.name).unlink()
+
+        assert "'arguments' must be an array" in str(context.value)
+
+    def test_invalid_config_action_arguments_items_must_be_strings(self):
+        """Test that action arguments must be string items."""
+        yaml_content = """
+actions:
+  - name: "bad_action"
+    description: "Invalid arguments item type"
+    command: "echo"
+    arguments:
+      - "hello"
+      - 123
+"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+            with pytest.raises(ConfigError) as context:
+                HooksMCPConfig.from_yaml(f.name)
+            Path(f.name).unlink()
+
+        assert "'arguments[1]' must be a string" in str(context.value)
+
     def test_valid_config_with_prompts_inline(self):
         """Test parsing a configuration with inline prompts."""
         yaml_content = """

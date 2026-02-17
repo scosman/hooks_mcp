@@ -354,3 +354,27 @@ class TestExecutor:
 
         assert result["status_code"] == 0
         assert result["stderr"] == ""
+
+    def test_execute_command_with_structured_arguments_preserves_query_argv(self):
+        """Test arguments mode keeps quoted free text as a single argv element."""
+        action = Action(
+            name="argv_query_test",
+            description="Verify argv query handling",
+            command="python",
+            arguments=[
+                "-c",
+                "import sys; print(repr(sys.argv[1]))",
+                "$QUERY",
+            ],
+            parameters=[
+                ActionParameter(
+                    "QUERY", ParameterType.INSECURE_STRING, "Query to pass through"
+                )
+            ],
+        )
+
+        query = 'find "quoted text" across files'
+        result = self.executor.execute_action(action, {"QUERY": query})
+
+        assert result["status_code"] == 0
+        assert result["stdout"] == repr(query)
