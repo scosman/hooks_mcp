@@ -101,8 +101,8 @@ class CommandExecutor:
         return self._substitute_parameters_in_args(command_args, env_vars)
 
     def _substitute_parameters_in_args(
-        self, command_args: list[str], env_vars: Dict[str, str]
-    ) -> list[str]:
+        self, command_args: List[str], env_vars: Dict[str, str]
+    ) -> List[str]:
         """
         Substitute parameter variables into pre-split argv elements.
 
