@@ -2,7 +2,7 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from .config import Action, ParameterType
 from .utils import process_terminal_output, resolve_path, validate_project_path
@@ -36,8 +36,8 @@ class CommandExecutor:
         # Validate and prepare parameters
         env_vars = self._prepare_parameters(action, parameters)
 
-        # Parse command and substitute parameters in command args
-        command_args = self._substitute_parameters(action.command, env_vars)
+        # Build command args and substitute parameters in each arg
+        command_args = self._build_command_args(action, env_vars)
 
         # Determine execution directory
         execution_dir = self.project_root
@@ -78,23 +78,41 @@ class CommandExecutor:
                 f"HooksMCP Error: Failed to execute command for action '{action.name}': {str(e)}"
             )
 
-    def _substitute_parameters(self, command: str, env_vars: Dict[str, str]) -> list:
+    def _build_command_args(self, action: Action, env_vars: Dict[str, str]) -> list:
         """
-        Parse command template and substitute parameter variables with their values.
+        Build command argv and substitute parameter variables with their values.
+
+        If action.arguments is provided, argv is constructed as:
+            [action.command] + action.arguments
+        without shlex parsing.
+
+        Otherwise, action.command is parsed with shlex for backwards compatibility.
+        """
+        if action.arguments is not None:
+            return self._substitute_parameters_in_args(
+                [action.command, *action.arguments], env_vars
+            )
+
+        try:
+            command_args = shlex.split(action.command)
+        except ValueError as e:
+            raise ExecutionError(f"HooksMCP Error: Invalid command syntax: {e}")
+
+        return self._substitute_parameters_in_args(command_args, env_vars)
+
+    def _substitute_parameters_in_args(
+        self, command_args: List[str], env_vars: Dict[str, str]
+    ) -> List[str]:
+        """
+        Substitute parameter variables into pre-split argv elements.
 
         Args:
-            command: The command string containing $VARIABLE_NAME placeholders
+            command_args: Pre-split argv elements containing $VARIABLE_NAME placeholders
             env_vars: Dictionary of variable names to values
 
         Returns:
             List of command arguments with variables substituted
         """
-        # First parse the command template to understand shell syntax
-        try:
-            command_args = shlex.split(command)
-        except ValueError as e:
-            raise ExecutionError(f"HooksMCP Error: Invalid command syntax: {e}")
-
         # Sort parameter names by length (descending) to handle collisions
         # This ensures $PREFIX_SUFFIX is processed before $PREFIX
         sorted_params = sorted(env_vars.keys(), key=len, reverse=True)

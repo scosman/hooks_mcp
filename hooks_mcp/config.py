@@ -172,6 +172,7 @@ class Action:
         name: str,
         description: str,
         command: str,
+        arguments: Optional[List[str]] = None,
         parameters: Optional[List[ActionParameter]] = None,
         run_path: Optional[str] = None,
         timeout: int = 60,
@@ -179,6 +180,7 @@ class Action:
         self.name = name
         self.description = description
         self.command = command
+        self.arguments = arguments
         self.parameters = parameters or []
         self.run_path = run_path
         self.timeout = timeout
@@ -189,6 +191,7 @@ class Action:
         name = data.get("name")
         description = data.get("description")
         command = data.get("command")
+        arguments = data.get("arguments")
 
         if not name:
             raise ConfigError("HooksMCP Error: 'name' is required for each action")
@@ -198,6 +201,16 @@ class Action:
             )
         if not command:
             raise ConfigError("HooksMCP Error: 'command' is required for each action")
+        if arguments is not None:
+            if not isinstance(arguments, list):
+                raise ConfigError(
+                    f"HooksMCP Error: 'arguments' must be an array for action '{name}'"
+                )
+            for i, arg in enumerate(arguments):
+                if not isinstance(arg, str):
+                    raise ConfigError(
+                        f"HooksMCP Error: 'arguments[{i}]' must be a string for action '{name}'"
+                    )
 
         parameters = []
         if "parameters" in data:
@@ -234,12 +247,13 @@ class Action:
                 )
 
         return cls(
-            name,
-            description,
-            command,
-            parameters,
-            data.get("run_path"),
-            data.get("timeout", 60),
+            name=name,
+            description=description,
+            command=command,
+            arguments=arguments,
+            parameters=parameters,
+            run_path=data.get("run_path"),
+            timeout=data.get("timeout", 60),
         )
 
 

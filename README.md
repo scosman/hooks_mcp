@@ -133,7 +133,8 @@ Each action in the `actions` array can have the following fields:
 
 - `name` (required): Unique identifier for the tool
 - `description` (required): Human-readable description of what the tool does
-- `command` (required): The CLI command to execute. May include dynamic parameters like `$TEST_FILE_PATH`.
+- `command` (required): The CLI command/program to execute. May include dynamic parameters like `$TEST_FILE_PATH`.
+- `arguments` (optional): Structured argv array. When provided, HooksMCP executes `[command] + arguments` and substitutes parameters in each argv element without `shlex.split`.
 - [`parameters`](#action-parameter-fields) (optional): Definitions of each parameter used in the command.
 - `run_path` (optional): Relative path from project root where the command should be executed. Useful for mono-repos.
 - `timeout` (optional): Timeout in seconds for command execution (default: 60 seconds)
@@ -180,6 +181,22 @@ Allows any string input from the agent without validation. Use with caution:
     - name: "PATTERN"
       type: "insecure_string"
       description: "Pattern to search for"
+```
+
+When passing free-text values (especially values with spaces or quotes), prefer structured `arguments`:
+
+```yaml
+- name: "embedding_search"
+  description: "Search embeddings index"
+  command: "/usr/local/bin/query_embeddings"
+  arguments:
+    - "search"
+    - "--query"
+    - "$QUERY"
+  parameters:
+    - name: "QUERY"
+      type: "insecure_string"
+      description: "Search query text"
 ```
 
 #### required_env_var
@@ -290,7 +307,7 @@ HooksMCP implements several security measures to help improve security of giving
 
 3. **Safe Command Execution**:
    - Uses Python `subprocess.run` with `shell=False` to prevent shell injection
-   - Uses `shlex.split` to properly separate command arguments
+   - Uses `shlex.split` for string `command` mode, or exact `[command] + arguments` when structured `arguments` are configured
    - Implements timeouts to prevent infinite running commands
 
 ### Security Risks
