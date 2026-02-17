@@ -2,7 +2,7 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 from .config import Action, ParameterType
 from .utils import process_terminal_output, resolve_path, validate_project_path
