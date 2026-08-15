@@ -496,10 +496,13 @@ def main() -> None:
 
     # Load .env file if it exists
     env_path = config_path.parent / ".env"
-    if env_path.exists():
-        from dotenv import load_dotenv
+    try:
+        if env_path.exists():
+            from dotenv import load_dotenv
 
-        load_dotenv(env_path)
+            load_dotenv(env_path)
+    except Exception as e:
+        print(f"Warning: Could not load .env file: {e}", file=sys.stderr)
 
     # Validate required environment variables
     missing_vars = config.validate_required_env_vars()
