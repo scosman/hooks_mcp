@@ -296,6 +296,62 @@ actions:
         assert action2.command == "echo Hello"
         assert action2.timeout == 60  # Default timeout
 
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [
+            ("timeout", '"30s"'),
+            ("timeout", "true"),
+            ("timeout", "[30]"),
+            ("run_path", "123"),
+            ("run_path", "true"),
+            ("run_path", "[tests]"),
+        ],
+    )
+    def test_config_rejects_wrong_typed_field(self, field, value):
+        """A mistyped timeout/run_path must fail at config load, not at tool call.
+
+        Both values reach subprocess/pathlib untouched, where a wrong type raises
+        an unhandled TypeError out of CommandExecutor.execute_action.
+        """
+        yaml_content = f"""
+actions:
+  - name: "typo"
+    description: "Action with a mistyped {field}"
+    command: "echo Hello"
+    {field}: {value}
+"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+
+            with pytest.raises(ConfigError) as context:
+                HooksMCPConfig.from_yaml(f.name)
+
+            Path(f.name).unlink()
+
+        assert f"'{field}' must be" in str(context.value)
+
+    def test_config_accepts_float_timeout(self):
+        """A fractional timeout stays valid — subprocess accepts a float."""
+        yaml_content = """
+actions:
+  - name: "quick"
+    description: "Action with a fractional timeout"
+    command: "echo Hello"
+    timeout: 1.5
+"""
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as f:
+            f.write(yaml_content)
+            f.flush()
+
+            config = HooksMCPConfig.from_yaml(f.name)
+
+            Path(f.name).unlink()
+
+        assert config.actions[0].timeout == 1.5
+
     def test_valid_config_with_prompts_inline(self):
         """Test parsing a configuration with inline prompts."""
         yaml_content = """

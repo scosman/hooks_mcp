@@ -1,3 +1,4 @@
 sketch.sh
 __pycache__/
 find/
+.specs_skill_state/

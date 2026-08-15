@@ -2,7 +2,7 @@ import os
 import shlex
 import subprocess
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any
 
 from .config import Action, ParameterType
 from .utils import process_terminal_output, resolve_path, validate_project_path
@@ -10,8 +10,6 @@ from .utils import process_terminal_output, resolve_path, validate_project_path
 
 class ExecutionError(Exception):
     """Exception raised for errors during command execution."""
-
-    pass
 
 
 class CommandExecutor:
@@ -21,8 +19,8 @@ class CommandExecutor:
         self.project_root = Path(os.getcwd())
 
     def execute_action(
-        self, action: Action, parameters: Dict[str, Any]
-    ) -> Dict[str, Any]:
+        self, action: Action, parameters: dict[str, Any]
+    ) -> dict[str, Any]:
         """
         Execute an action with the given parameters.
 
@@ -62,6 +60,9 @@ class CommandExecutor:
                 text=True,
                 timeout=action.timeout,
                 shell=False,
+                # The caller inspects status_code itself, so a non-zero exit is
+                # a normal result here, not an error to raise on.
+                check=False,
             )
 
             return {
@@ -73,12 +74,12 @@ class CommandExecutor:
             raise ExecutionError(
                 f"HooksMCP Error: Command for action '{action.name}' timed out after {action.timeout} seconds"
             )
-        except Exception as e:
+        except (OSError, ValueError, subprocess.SubprocessError) as e:
             raise ExecutionError(
-                f"HooksMCP Error: Failed to execute command for action '{action.name}': {str(e)}"
+                f"HooksMCP Error: Failed to execute command for action '{action.name}': {e!s}"
             )
 
-    def _substitute_parameters(self, command: str, env_vars: Dict[str, str]) -> list:
+    def _substitute_parameters(self, command: str, env_vars: dict[str, str]) -> list:
         """
         Parse command template and substitute parameter variables with their values.
 
@@ -94,6 +95,13 @@ class CommandExecutor:
             command_args = shlex.split(command)
         except ValueError as e:
             raise ExecutionError(f"HooksMCP Error: Invalid command syntax: {e}")
+
+        # A whitespace-only command passes config validation but splits to [],
+        # which subprocess.run rejects with a bare IndexError.
+        if not command_args:
+            raise ExecutionError(
+                f"HooksMCP Error: Command is empty: {command!r} contains no executable"
+            )
 
         # Sort parameter names by length (descending) to handle collisions
         # This ensures $PREFIX_SUFFIX is processed before $PREFIX
@@ -115,8 +123,8 @@ class CommandExecutor:
         return substituted_args
 
     def _prepare_parameters(
-        self, action: Action, provided_parameters: Dict[str, Any]
-    ) -> Dict[str, str]:
+        self, action: Action, provided_parameters: dict[str, Any]
+    ) -> dict[str, str]:
         """
         Validate and prepare environment variables for command execution.
 

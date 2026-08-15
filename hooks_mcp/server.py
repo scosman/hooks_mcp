@@ -5,7 +5,7 @@ import signal
 import sys
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 import uvicorn
 from mcp.server import Server
@@ -34,7 +34,7 @@ from .config import (
 from .executor import CommandExecutor, ExecutionError
 
 
-def create_prompt_definitions(config: HooksMCPConfig) -> List[Prompt]:
+def create_prompt_definitions(config: HooksMCPConfig) -> list[Prompt]:
     """
     Create MCP prompt definitions from the HooksMCP configuration.
 
@@ -69,7 +69,7 @@ def create_prompt_definitions(config: HooksMCPConfig) -> List[Prompt]:
 
 def create_tool_definitions(
     config: HooksMCPConfig, disable_prompt_tool: bool = False
-) -> List[Tool]:
+) -> list[Tool]:
     """
     Create MCP tool definitions from the HooksMCP configuration.
 
@@ -84,7 +84,7 @@ def create_tool_definitions(
 
     for action in config.actions:
         # Convert action parameters to MCP tool parameters
-        parameters: List[ActionParameter] = []
+        parameters: list[ActionParameter] = []
         for param in action.parameters:
             # Skip required_env_var and optional_env_var as they're not provided by the client
             if param.type in [
@@ -177,9 +177,9 @@ def get_prompt_content(config_prompt: ConfigPrompt, config_path: Path) -> str:
         prompt_file_path = config_path.parent / config_prompt.prompt_file
         try:
             return prompt_file_path.read_text(encoding="utf-8")
-        except Exception as e:
+        except (OSError, UnicodeDecodeError) as e:
             raise ExecutionError(
-                f"HooksMCP Error: Failed to read prompt file '{config_prompt.prompt_file}': {str(e)}"
+                f"HooksMCP Error: Failed to read prompt file '{config_prompt.prompt_file}': {e!s}"
             )
     else:
         raise ExecutionError(
@@ -205,11 +205,11 @@ def _create_server(
 
     # Register tools
     @server.list_tools()
-    async def list_tools() -> List[Tool]:
+    async def list_tools() -> list[Tool]:
         return tools
 
     @server.call_tool()
-    async def call_tool(name: str, arguments: Dict[str, Any]) -> List[TextContent]:
+    async def call_tool(name: str, arguments: dict[str, Any]) -> list[TextContent]:
         # Handle get_prompt tool specially
         if name == "get_prompt":
             prompt_name = arguments.get("prompt_name")
@@ -270,21 +270,21 @@ def _create_server(
             return [TextContent(type="text", text=output)]
         except ExecutionError:
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - last line of defense: a tool call must return an error, not crash the handler
             raise ExecutionError(
-                f"HooksMCP Error: Unexpected error executing action '{name}': {str(e)}"
+                f"HooksMCP Error: Unexpected error executing action '{name}': {e!s}"
             )
 
     # Register prompts if any exist
     if prompts:
 
         @server.list_prompts()
-        async def list_prompts() -> List[Prompt]:
+        async def list_prompts() -> list[Prompt]:
             return prompts
 
         @server.get_prompt()
         async def get_prompt(
-            name: str, arguments: Dict[str, Any] | None = None
+            name: str, arguments: dict[str, Any] | None = None
         ) -> GetPromptResult:
             # Find the prompt by name
             config_prompt = next(
@@ -425,12 +425,13 @@ async def serve(
 
 def get_version() -> str:
     """Get the version of the hooks-mcp package."""
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as package_version
+
     try:
         # Try to get version from installed package metadata
-        from importlib.metadata import version as get_version
-
-        return f"hooks-mcp {get_version('hooks-mcp')}"
-    except Exception:
+        return f"hooks-mcp {package_version('hooks-mcp')}"
+    except PackageNotFoundError:
         return "hooks-mcp: cannot load version"
 
 
@@ -476,9 +477,9 @@ def main() -> None:
     if args.working_directory:
         try:
             os.chdir(args.working_directory)
-        except Exception as e:
+        except OSError as e:
             print(
-                f"HooksMCP Error: Failed to change working directory to '{args.working_directory}': {str(e)}"
+                f"HooksMCP Error: Failed to change working directory to '{args.working_directory}': {e!s}"
             )
             sys.exit(1)
 
@@ -501,7 +502,7 @@ def main() -> None:
             from dotenv import load_dotenv
 
             load_dotenv(env_path)
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 - a .env that fails to load is a warning, never fatal
         print(f"Warning: Could not load .env file: {e}", file=sys.stderr)
 
     # Validate required environment variables
@@ -523,8 +524,8 @@ def main() -> None:
     except KeyboardInterrupt:
         print("HooksMCP server stopped by user")
         sys.exit(0)
-    except Exception as e:
-        print(f"HooksMCP Error: Failed to start server: {str(e)}")
+    except Exception as e:  # noqa: BLE001 - top-level handler: report any startup failure and exit non-zero
+        print(f"HooksMCP Error: Failed to start server: {e!s}")
         sys.exit(1)
 
 
