@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Test script to demonstrate potential security issues with parameter substitution approach.
 """

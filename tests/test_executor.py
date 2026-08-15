@@ -354,3 +354,19 @@ class TestExecutor:
 
         assert result["status_code"] == 0
         assert result["stderr"] == ""
+
+    @pytest.mark.parametrize("command", ["   ", "\t", "\n", " \t\n "])
+    def test_execute_whitespace_only_command(self, command):
+        """A command with no executable must raise ExecutionError, not IndexError.
+
+        Action.from_dict only rejects a falsy command, so a whitespace-only one
+        reaches the executor and shlex-splits to an empty argv.
+        """
+        action = Action(
+            name="blank", description="Whitespace only command", command=command
+        )
+
+        with pytest.raises(ExecutionError) as context:
+            self.executor.execute_action(action, {})
+
+        assert "Command is empty" in str(context.value)

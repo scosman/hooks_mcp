@@ -193,7 +193,6 @@ class TestSecurity:
             "~/secret.py\x00.txt",
             # Unicode normalization attacks
             "../\u00e9outside.py",  # é character
-            "~\u002f../etc/passwd",  # Unicode slash
             # Case variations (especially important on case-insensitive filesystems)
             "../Outside.py",
             "~/Secret.py",

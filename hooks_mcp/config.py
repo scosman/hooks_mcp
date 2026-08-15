@@ -1,14 +1,12 @@
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import yaml
 
 
 class ConfigError(Exception):
     """Exception raised for errors in the HooksMCP configuration."""
-
-    pass
 
 
 class PromptArgument:
@@ -17,7 +15,7 @@ class PromptArgument:
     def __init__(
         self,
         name: str,
-        description: Optional[str] = None,
+        description: str | None = None,
         required: bool = False,
     ):
         self.name = name
@@ -25,7 +23,7 @@ class PromptArgument:
         self.required = required
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "PromptArgument":
+    def from_dict(cls, data: dict[str, Any]) -> "PromptArgument":
         """Create a PromptArgument from a dictionary."""
         name = data.get("name")
         description = data.get("description")
@@ -46,9 +44,9 @@ class Prompt:
         self,
         name: str,
         description: str,
-        prompt_text: Optional[str] = None,
-        prompt_file: Optional[str] = None,
-        arguments: Optional[List[PromptArgument]] = None,
+        prompt_text: str | None = None,
+        prompt_file: str | None = None,
+        arguments: list[PromptArgument] | None = None,
     ):
         self.name = name
         self.description = description
@@ -67,7 +65,7 @@ class Prompt:
             )
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any], config_dir: Path) -> "Prompt":
+    def from_dict(cls, data: dict[str, Any], config_dir: Path) -> "Prompt":
         """Create a Prompt from a dictionary."""
         name = data.get("name")
         description = data.get("description")
@@ -110,9 +108,9 @@ class Prompt:
                 except ConfigError:
                     # Re-raise config errors as-is
                     raise
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - any parse failure must surface as a ConfigError
                     raise ConfigError(
-                        f"HooksMCP Error: Failed to parse argument[{i}] for prompt '{name}': {str(e)}"
+                        f"HooksMCP Error: Failed to parse argument[{i}] for prompt '{name}': {e!s}"
                     )
 
         prompt = cls(name, description, prompt_text, prompt_file, arguments)
@@ -144,15 +142,15 @@ class ActionParameter:
         self,
         name: str,
         param_type: str,
-        description: Optional[str] = None,
-        default: Optional[str] = None,
+        description: str | None = None,
+        default: str | None = None,
     ):
         self.name = name
         self.type = param_type
         self.description = description
         self.default = default
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert parameter to dictionary for MCP tool definition."""
         result = {
             "name": self.name,
@@ -172,9 +170,9 @@ class Action:
         name: str,
         description: str,
         command: str,
-        parameters: Optional[List[ActionParameter]] = None,
-        run_path: Optional[str] = None,
-        timeout: int = 60,
+        parameters: list[ActionParameter] | None = None,
+        run_path: str | None = None,
+        timeout: float = 60,
     ):
         self.name = name
         self.description = description
@@ -184,7 +182,7 @@ class Action:
         self.timeout = timeout
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Action":
+    def from_dict(cls, data: dict[str, Any]) -> "Action":
         """Create an Action from a dictionary."""
         name = data.get("name")
         description = data.get("description")
@@ -198,6 +196,20 @@ class Action:
             )
         if not command:
             raise ConfigError("HooksMCP Error: 'command' is required for each action")
+
+        # Both fields reach subprocess/pathlib untouched, where a wrong type
+        # raises TypeError at first tool call instead of here at config load.
+        run_path = data.get("run_path")
+        if run_path is not None and not isinstance(run_path, str):
+            raise ConfigError(
+                f"HooksMCP Error: 'run_path' must be a string for action '{name}' (got {run_path!r})"
+            )
+
+        timeout = data.get("timeout", 60)
+        if isinstance(timeout, bool) or not isinstance(timeout, (int, float)):
+            raise ConfigError(
+                f"HooksMCP Error: 'timeout' must be a number of seconds for action '{name}' (got {timeout!r})"
+            )
 
         parameters = []
         if "parameters" in data:
@@ -238,8 +250,8 @@ class Action:
             description,
             command,
             parameters,
-            data.get("run_path"),
-            data.get("timeout", 60),
+            run_path,
+            timeout,
         )
 
 
@@ -248,11 +260,11 @@ class HooksMCPConfig:
 
     def __init__(
         self,
-        actions: List[Action],
-        prompts: Optional[List[Prompt]] = None,
-        get_prompt_tool_filter: Optional[List[str]] = None,
-        server_name: Optional[str] = None,
-        server_description: Optional[str] = None,
+        actions: list[Action],
+        prompts: list[Prompt] | None = None,
+        get_prompt_tool_filter: list[str] | None = None,
+        server_name: str | None = None,
+        server_description: str | None = None,
     ):
         self.actions = actions
         self.prompts = prompts or []
@@ -285,11 +297,13 @@ class HooksMCPConfig:
                 data = yaml.safe_load(f)
         except yaml.YAMLError as e:
             raise ConfigError(
-                f"HooksMCP Error: Failed to parse YAML file '{yaml_path}': {str(e)}"
+                f"HooksMCP Error: Failed to parse YAML file '{yaml_path}': {e!s}"
             )
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 - any config load failure must surface as a ConfigError
+            # PyYAML constructors raise plain ValueError/AttributeError/RecursionError
+            # for malformed input, none of which are yaml.YAMLError subclasses.
             raise ConfigError(
-                f"HooksMCP Error: Failed to read configuration file '{yaml_path}': {str(e)}"
+                f"HooksMCP Error: Failed to read configuration file '{yaml_path}': {e!s}"
             )
 
         if not isinstance(data, dict):
@@ -313,10 +327,8 @@ class HooksMCPConfig:
             except ConfigError:
                 # Re-raise config errors as-is
                 raise
-            except Exception as e:
-                raise ConfigError(
-                    f"HooksMCP Error: Failed to parse action[{i}]: {str(e)}"
-                )
+            except Exception as e:  # noqa: BLE001 - any parse failure must surface as a ConfigError
+                raise ConfigError(f"HooksMCP Error: Failed to parse action[{i}]: {e!s}")
 
         # Parse prompts if present
         prompts = []
@@ -337,9 +349,9 @@ class HooksMCPConfig:
                 except ConfigError:
                     # Re-raise config errors as-is
                     raise
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 - any parse failure must surface as a ConfigError
                     raise ConfigError(
-                        f"HooksMCP Error: Failed to parse prompt[{i}]: {str(e)}"
+                        f"HooksMCP Error: Failed to parse prompt[{i}]: {e!s}"
                     )
 
         return cls(
@@ -350,12 +362,13 @@ class HooksMCPConfig:
             server_description=data.get("server_description"),
         )
 
-    def validate_required_env_vars(self) -> List[str]:
+    def validate_required_env_vars(self) -> list[str]:
         """Check which required environment variables are not set and return their names."""
         missing_vars = []
         for action in self.actions:
             for param in action.parameters:
-                if param.type == ParameterType.REQUIRED_ENV_VAR:
-                    if not os.environ.get(param.name):
-                        missing_vars.append(param.name)
+                if param.type == ParameterType.REQUIRED_ENV_VAR and not os.environ.get(
+                    param.name
+                ):
+                    missing_vars.append(param.name)
         return missing_vars
